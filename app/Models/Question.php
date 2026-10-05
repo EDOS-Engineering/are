@@ -49,7 +49,11 @@ class Question extends Model
         $query->whereNull('questions.archived_at');
     }
 
-    public static function getSortedQuestions($limit = 50)
+    /**
+     * @param  bool  $withAuthors  Eager-load each author and their identities.
+     *                             cachedQueue() loads them once across both lists instead.
+     */
+    public static function getSortedQuestions($limit = 50, bool $withAuthors = true)
     {
         return self::query()
             ->active()
@@ -58,11 +62,14 @@ class Question extends Model
             ->orderBy('votes', 'desc')
             ->groupBy('questions.id')
             ->limit($limit)
-            ->with('user.identities')
+            ->when($withAuthors, fn ($query) => $query->with('user.identities'))
             ->get();
     }
 
-    public static function getRecentQuestions($limit = 50)
+    /**
+     * @param  bool  $withAuthors  As for getSortedQuestions().
+     */
+    public static function getRecentQuestions($limit = 50, bool $withAuthors = true)
     {
         return self::query()
             ->active()
@@ -71,7 +78,7 @@ class Question extends Model
             ->orderBy('id', 'desc')
             ->groupBy('questions.id')
             ->limit($limit)
-            ->with('user.identities')
+            ->when($withAuthors, fn ($query) => $query->with('user.identities'))
             ->get();
     }
 
@@ -161,9 +168,12 @@ class Question extends Model
         }
 
         $lists = [
-            'top' => self::getSortedQuestions(),
-            'recent' => self::getRecentQuestions(),
+            'top' => self::getSortedQuestions(withAuthors: false),
+            'recent' => self::getRecentQuestions(withAuthors: false),
         ];
+
+        // Both lists mostly show the same people: load them once (#173).
+        (new Collection([...$lists['top'], ...$lists['recent']]))->load('user.identities');
         Cache::put('questions.queue', ['version' => $version, 'lists' => $lists], now()->addMinutes(10));
 
         return $lists;
